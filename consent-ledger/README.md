@@ -1,6 +1,251 @@
-# consent-ledger
+# ConsentLedger
 
-This project has been generated using AlgoKit. See below for default getting started instructions.
+A decentralised consent management system built on Algorand. Users grant data-access consent as on-chain ASA tokens; organisations verify consent status in real time; users can revoke consent by freezing the token — all without a central authority.
+
+## How it works
+
+| Role | View | What they do |
+|---|---|---|
+| Data owner | **Grant Consent** | Mint a Consent ASA, recorded in a box keyed by asset ID |
+| Data owner | **My Consents** | View and revoke issued tokens (freezes the ASA on-chain) |
+| Organisation | **Org View** | Connect their wallet, see all consents granted to their address |
+
+The smart contract is deployed on **Algorand TestNet**. No Docker or LocalNet is required to run this project.
+
+---
+
+## Prerequisites
+
+Install these tools before starting. Verify each one is on your PATH.
+
+| Tool | Min version | Install |
+|---|---|---|
+| Python | 3.12 | [python.org](https://www.python.org/downloads/) or `pyenv install 3.12` |
+| pipx | any | `pip install pipx && pipx ensurepath` |
+| AlgoKit CLI | 2.10 | `pipx install algokit` |
+| Poetry | 1.2+ | `pipx install poetry` |
+| Node.js | 18+ | [nodejs.org](https://nodejs.org) or `nvm install --lts` |
+
+```bash
+# Verify all tools
+algokit --version   # expect 2.10.x
+python3 --version   # expect 3.12.x
+poetry --version
+node --version      # expect v18+
+npm --version
+```
+
+---
+
+## Step 1 — Clone the repo
+
+```bash
+git clone <repo-url>
+cd consent-ledger
+```
+
+---
+
+## Step 2 — Install Python dependencies
+
+```bash
+poetry install
+```
+
+Creates a `.venv` inside the project with `algokit-utils`, `puyapy`, `algopy-testing`, and `python-dotenv`.
+
+---
+
+## Step 3 — Run the unit tests (no network needed)
+
+```bash
+poetry run python -m pytest tests/ -v
+```
+
+Expected output — all 3 tests pass in under a second:
+
+```
+PASSED tests/test_consent_ledger_unit.py::test_grant_consent_creates_asa
+PASSED tests/test_consent_ledger_unit.py::test_revoke_freezes_asset
+PASSED tests/test_consent_ledger_unit.py::test_is_valid_returns_false_when_frozen
+```
+
+---
+
+## Step 4 — Deploy the contract to TestNet
+
+### 4a. Generate a deployer wallet
+
+```bash
+poetry run python - <<'EOF'
+import algosdk
+pk, addr = algosdk.account.generate_account()
+print("Address :", addr)
+print("Mnemonic:", algosdk.mnemonic.from_private_key(pk))
+EOF
+```
+
+Save both values — you need the mnemonic in step 4c and the address to fund in 4b.
+
+### 4b. Fund the deployer
+
+Paste your address into the [Algorand TestNet Dispenser](https://dispenser.testnet.aws.algodev.network/) and request **5 ALGO** (the deploy script sends 2 ALGO to the contract for box storage MBR).
+
+### 4c. Create the contract `.env` file
+
+Create a file at `consent-ledger/.env`:
+
+```env
+ALGOD_SERVER=https://testnet-api.4160.nodely.dev
+ALGOD_PORT=443
+ALGOD_TOKEN=
+INDEXER_SERVER=https://testnet-idx.4160.nodely.dev
+INDEXER_PORT=443
+INDEXER_TOKEN=
+DEPLOYER_MNEMONIC=<your 25-word mnemonic from step 4a>
+```
+
+### 4d. Deploy
+
+```bash
+ALGOD_SERVER=https://testnet-api.4160.nodely.dev \
+ALGOD_PORT=443 \
+ALGOD_TOKEN="" \
+INDEXER_SERVER=https://testnet-idx.4160.nodely.dev \
+INDEXER_PORT=443 \
+INDEXER_TOKEN="" \
+DEPLOYER_MNEMONIC="$(grep DEPLOYER_MNEMONIC .env | cut -d= -f2-)" \
+poetry run python -m smart_contracts deploy consent_ledger
+```
+
+The last lines of output will show:
+
+```
+ConsentLedger deployed: app_id=<APP_ID>, app_address=<APP_ADDRESS>
+```
+
+Copy both values — you need them in step 5.
+
+---
+
+## Step 5 — Configure and start the frontend
+
+### 5a. Create `frontend/.env`
+
+```env
+VITE_APP_ID=<APP_ID from step 4d>
+VITE_APP_ADDRESS=<APP_ADDRESS from step 4d>
+```
+
+### 5b. Install npm dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+### 5c. Start the dev server
+
+```bash
+npm run dev
+```
+
+Open the URL shown in the terminal (usually [http://localhost:5173](http://localhost:5173)).
+
+---
+
+## Step 6 — Use the app
+
+You need **Pera Wallet** ([browser extension](https://chromewebstore.google.com/detail/pera-wallet/eanbowmgkkphaenmcaldejakbdopdnak) or mobile app). Switch Pera Wallet to **TestNet** mode before connecting.
+
+### Grant consent (data owner)
+
+1. Click **Connect Pera Wallet** in the header → approve in Pera
+2. Go to the **Grant Consent** tab
+3. Fill in:
+   - **Requester Algorand Address** — the organisation's 58-character TestNet wallet address
+   - **Organisation Name** — optional human-readable label (stored in the purpose field)
+   - **Data Type** — KYC / Medical / Financial
+   - **Purpose** — free-text description
+   - **Expiry** — optional date; leave blank for no expiry
+4. Click **Grant Consent** → approve the transaction in Pera Wallet
+5. On success, the app displays the Consent ASA ID and a link to the TestNet explorer
+
+### Revoke consent (data owner)
+
+1. Go to **My Consents** — your issued tokens load automatically
+2. Active tokens show a green **Active** badge
+3. Click **Revoke** → approve in Pera Wallet
+4. The ASA is frozen on-chain and the card turns red immediately
+
+### View granted consents (organisation)
+
+1. Connect the **organisation's wallet** (the address entered as Requester above)
+2. Go to **Org View**
+3. All consents granted to your address appear with:
+   - Data subject's (owner's) Algorand address
+   - Data type, purpose, expiry
+   - Active / Revoked status
+
+---
+
+## Project structure
+
+```
+consent-ledger/
+├── smart_contracts/
+│   ├── consent_ledger/
+│   │   ├── contract.py          # AVM smart contract (Algorand Python / PuyaPy)
+│   │   └── deploy_config.py     # Deployment script
+│   └── artifacts/
+│       └── consent_ledger/
+│           ├── ConsentLedger.arc56.json   # ABI specification
+│           └── consent_ledger_client.py   # Auto-generated Python client
+├── tests/
+│   └── test_consent_ledger_unit.py        # Unit tests (no network)
+├── frontend/
+│   └── src/
+│       ├── contracts/
+│       │   └── ConsentLedgerClient.ts     # Auto-generated TypeScript client
+│       ├── components/
+│       │   ├── GrantConsentForm.tsx       # Grant consent view
+│       │   ├── ActiveConsents.tsx         # My Consents view (data owner)
+│       │   ├── OrgConsents.tsx            # Org View (organisation)
+│       │   └── Header.tsx
+│       ├── config.ts                      # Reads VITE_APP_ID / VITE_APP_ADDRESS
+│       └── utils.ts                       # ARC-4 box decoder, address helpers
+├── pyproject.toml
+├── .env                                   # Contract deploy config (do not commit)
+└── frontend/.env                          # Frontend config (do not commit)
+```
+
+---
+
+## Rebuilding after contract changes
+
+If you modify `contract.py`:
+
+```bash
+# 1. Recompile and regenerate artifacts
+poetry run python -m smart_contracts build
+
+# 2. Redeploy to TestNet
+ALGOD_SERVER=https://testnet-api.4160.nodely.dev \
+ALGOD_PORT=443 \
+ALGOD_TOKEN="" \
+INDEXER_SERVER=https://testnet-idx.4160.nodely.dev \
+INDEXER_PORT=443 \
+INDEXER_TOKEN="" \
+DEPLOYER_MNEMONIC="$(grep DEPLOYER_MNEMONIC .env | cut -d= -f2-)" \
+poetry run python -m smart_contracts deploy consent_ledger
+
+# 3. Regenerate the TypeScript client
+algokit generate client \
+  smart_contracts/artifacts/consent_ledger/ConsentLedger.arc56.json \
+  --output frontend/src/contracts/ConsentLedgerClient.ts
+
+# 4. Update frontend/.env with the new app_id and app_address
+```
 
 # Setup
 
