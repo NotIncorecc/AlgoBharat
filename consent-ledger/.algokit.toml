@@ -32,6 +32,9 @@ environment_secrets = [
 build = { commands = [
   'poetry run python -m smart_contracts build',
 ], description = 'Build all smart contracts in the project' }
+test = { commands = [
+  'poetry run python -m pytest tests/ -v',
+], description = 'Run unit tests for smart contracts' }
 lint = { commands = [
 ], description = 'Perform linting' }
 audit-teal = { commands = [
