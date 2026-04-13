@@ -1,6 +1,5 @@
 import { useWallet } from '@txnlab/use-wallet-react'
-
-type View = 'grant' | 'consents'
+import type { View } from '../App'
 
 interface Props {
   view: View
@@ -25,26 +24,23 @@ export function Header({ view, onViewChange }: Props) {
         <div className="flex items-center gap-3">
           <span className="text-xl font-bold text-indigo-700">ConsentLedger</span>
           <nav className="flex gap-1 ml-4">
-            <button
-              onClick={() => onViewChange('grant')}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                view === 'grant'
-                  ? 'bg-indigo-100 text-indigo-700'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-              }`}
-            >
-              Grant Consent
-            </button>
-            <button
-              onClick={() => onViewChange('consents')}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                view === 'consents'
-                  ? 'bg-indigo-100 text-indigo-700'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-              }`}
-            >
-              Active Consents
-            </button>
+            {([
+              ['grant', 'Grant Consent'],
+              ['consents', 'My Consents'],
+              ['org', 'Org View'],
+            ] as [View, string][]).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => onViewChange(v)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  view === v
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </nav>
         </div>
 

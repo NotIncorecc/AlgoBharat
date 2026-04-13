@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useWallet } from '@txnlab/use-wallet-react'
 import { AlgorandClient } from '@algorandfoundation/algokit-utils'
+import algosdk from 'algosdk'
 import { ConsentLedgerClient } from '../contracts/ConsentLedgerClient'
 import { CONFIG } from '../config'
 
@@ -8,10 +9,11 @@ const DATA_TYPES = ['KYC', 'Medical', 'Financial'] as const
 type DataType = (typeof DATA_TYPES)[number]
 
 interface FormState {
-  organization: string
+  requesterAddress: string  // must be a valid Algorand address
+  label: string             // human-readable org/label name (goes into purpose prefix)
   dataType: DataType
   purpose: string
-  expiry: string // date string "YYYY-MM-DD" or ""
+  expiry: string
 }
 
 interface TxResult {
@@ -24,7 +26,8 @@ export function GrantConsentForm() {
   const peraWallet = wallets[0]
 
   const [form, setForm] = useState<FormState>({
-    organization: '',
+    requesterAddress: '',
+    label: '',
     dataType: 'KYC',
     purpose: '',
     expiry: '',
@@ -41,24 +44,34 @@ export function GrantConsentForm() {
     setError(null)
     setResult(null)
 
-    // Connect wallet if needed
     if (!activeAddress || !transactionSigner) {
       try {
         await peraWallet?.connect()
-        return // re-submit required after connect
+        return
       } catch {
         setError('Wallet connection cancelled.')
         return
       }
     }
 
-    if (!form.organization.trim()) { setError('Organization name is required.'); return }
-    if (!form.purpose.trim())      { setError('Purpose is required.'); return }
-    if (CONFIG.APP_ID === 0n)      { setError('APP_ID not configured — set VITE_APP_ID in .env'); return }
+    if (!form.requesterAddress.trim()) { setError('Requester address is required.'); return }
+    if (!form.purpose.trim())          { setError('Purpose is required.'); return }
+    if (CONFIG.APP_ID === 0n)          { setError('APP_ID not configured — set VITE_APP_ID in .env'); return }
+
+    // Validate Algorand address
+    if (!algosdk.isValidAddress(form.requesterAddress.trim())) {
+      setError('Invalid Algorand address. Must be a 58-character base32 address.')
+      return
+    }
 
     const expiryTs = form.expiry
       ? BigInt(Math.floor(new Date(form.expiry).getTime() / 1000))
       : 0n
+
+    // Combine label + purpose so orgname isn't lost
+    const fullPurpose = form.label.trim()
+      ? `${form.label.trim()}: ${form.purpose.trim()}`
+      : form.purpose.trim()
 
     setLoading(true)
     try {
@@ -72,19 +85,19 @@ export function GrantConsentForm() {
 
       const response = await client.send.grantConsent({
         args: {
-          requester: form.organization,    // org fills the requester field
+          requester: form.requesterAddress.trim(),
           dataType: form.dataType,
-          purpose: form.purpose,
+          purpose: fullPurpose,
           expiry: expiryTs,
         },
-        extraFee: (3_000).microAlgo(),     // cover inner AssetConfig + box MBR
+        extraFee: (3_000).microAlgo(),
       })
 
       setResult({
         txId: response.txIds[0],
         assetId: response.return?.toString() ?? '?',
       })
-      setForm({ organization: '', dataType: 'KYC', purpose: '', expiry: '' })
+      setForm({ requesterAddress: '', label: '', dataType: 'KYC', purpose: '', expiry: '' })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -100,15 +113,32 @@ export function GrantConsentForm() {
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-5 bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        {/* Organization */}
+        {/* Requester Address */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Organization Name
+            Requester Algorand Address
           </label>
           <input
             type="text"
-            value={form.organization}
-            onChange={(e) => update('organization', e.target.value)}
+            value={form.requesterAddress}
+            onChange={(e) => update('requesterAddress', e.target.value)}
+            placeholder="e.g. ABCDEF… (58-character TestNet address)"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            The Algorand wallet address of the organisation requesting your data.
+          </p>
+        </div>
+
+        {/* Label (optional human-readable name) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Organisation Name <span className="text-gray-400 font-normal">(optional label)</span>
+          </label>
+          <input
+            type="text"
+            value={form.label}
+            onChange={(e) => update('label', e.target.value)}
             placeholder="e.g. Apollo Hospitals"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
