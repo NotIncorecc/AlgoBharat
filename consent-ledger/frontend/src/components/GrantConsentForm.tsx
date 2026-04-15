@@ -5,12 +5,12 @@ import algosdk from 'algosdk'
 import { ConsentLedgerClient } from '../contracts/ConsentLedgerClient'
 import { CONFIG } from '../config'
 
-const DATA_TYPES = ['KYC', 'Medical', 'Financial'] as const
+const DATA_TYPES = ['Medical', 'KYC', 'Financial', 'Identity', 'Other'] as const
 type DataType = (typeof DATA_TYPES)[number]
 
 interface FormState {
-  requesterAddress: string  // must be a valid Algorand address
-  label: string             // human-readable org/label name (goes into purpose prefix)
+  orgAddress: string      // org's Algorand address (the requester)
+  orgName: string         // human-readable org name
   dataType: DataType
   purpose: string
   expiry: string
@@ -26,9 +26,9 @@ export function GrantConsentForm() {
   const peraWallet = wallets[0]
 
   const [form, setForm] = useState<FormState>({
-    requesterAddress: '',
-    label: '',
-    dataType: 'KYC',
+    orgAddress: '',
+    orgName: '',
+    dataType: 'Medical',
     purpose: '',
     expiry: '',
   })
@@ -54,13 +54,12 @@ export function GrantConsentForm() {
       }
     }
 
-    if (!form.requesterAddress.trim()) { setError('Requester address is required.'); return }
-    if (!form.purpose.trim())          { setError('Purpose is required.'); return }
-    if (CONFIG.APP_ID === 0n)          { setError('APP_ID not configured — set VITE_APP_ID in .env'); return }
+    if (!form.orgAddress.trim())  { setError('Organisation address is required.'); return }
+    if (!form.purpose.trim())     { setError('Purpose is required.'); return }
+    if (CONFIG.APP_ID === 0n)     { setError('APP_ID not configured — set VITE_APP_ID in .env'); return }
 
-    // Validate Algorand address
-    if (!algosdk.isValidAddress(form.requesterAddress.trim())) {
-      setError('Invalid Algorand address. Must be a 58-character base32 address.')
+    if (!algosdk.isValidAddress(form.orgAddress.trim())) {
+      setError('Invalid Algorand address for Organisation.')
       return
     }
 
@@ -68,14 +67,13 @@ export function GrantConsentForm() {
       ? BigInt(Math.floor(new Date(form.expiry).getTime() / 1000))
       : 0n
 
-    // Combine label + purpose so orgname isn't lost
-    const fullPurpose = form.label.trim()
-      ? `${form.label.trim()}: ${form.purpose.trim()}`
+    const fullPurpose = form.orgName.trim()
+      ? `${form.orgName.trim()}: ${form.purpose.trim()}`
       : form.purpose.trim()
 
     setLoading(true)
     try {
-      const algorand = AlgorandClient.testNet()
+      const algorand = AlgorandClient.defaultLocalNet()
       algorand.setSigner(activeAddress, transactionSigner)
 
       const client = algorand.client.getTypedAppClientById(ConsentLedgerClient, {
@@ -85,7 +83,7 @@ export function GrantConsentForm() {
 
       const response = await client.send.grantConsent({
         args: {
-          requester: form.requesterAddress.trim(),
+          requester: form.orgAddress.trim(),
           dataType: form.dataType,
           purpose: fullPurpose,
           expiry: expiryTs,
@@ -97,7 +95,7 @@ export function GrantConsentForm() {
         txId: response.txIds[0],
         assetId: response.return?.toString() ?? '?',
       })
-      setForm({ requesterAddress: '', label: '', dataType: 'KYC', purpose: '', expiry: '' })
+      setForm({ orgAddress: '', orgName: '', dataType: 'Medical', purpose: '', expiry: '' })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -105,52 +103,76 @@ export function GrantConsentForm() {
     }
   }
 
+  if (!activeAddress) {
+    return (
+      <div className="text-center py-16 text-gray-500">
+        <div className="text-5xl mb-4">👤</div>
+        <p className="text-lg font-semibold mb-2">Connect your wallet to grant consent</p>
+        <p className="text-sm text-gray-400 mb-6">
+          You are logged in as a <span className="font-medium text-emerald-600">User</span>. Connect your Pera wallet to authorise data access.
+        </p>
+        <button
+          onClick={() => peraWallet?.connect()}
+          className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:bg-emerald-700 transition-colors"
+        >
+          Connect Pera Wallet
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-1">Grant Consent</h2>
-      <p className="text-gray-500 text-sm mb-6">
-        Mints a consent token (ASA) on Algorand TestNet and records your consent on-chain.
-      </p>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold mb-1">Grant Consent to an Organisation</h2>
+        <p className="text-gray-500 text-sm">
+          Enter the organisation's details below. A consent token (ASA) will be minted on Algorand and stored on-chain as proof of your authorisation.
+        </p>
+        <div className="mt-3 flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+          <span>🔑</span>
+          <span>Connected as: <span className="font-mono font-semibold">{activeAddress.slice(0, 8)}…{activeAddress.slice(-6)}</span></span>
+        </div>
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-5 bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        {/* Requester Address */}
+        {/* Org Address */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Requester Algorand Address
+            Organisation's Algorand Address <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
-            value={form.requesterAddress}
-            onChange={(e) => update('requesterAddress', e.target.value)}
-            placeholder="e.g. ABCDEF… (58-character TestNet address)"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            value={form.orgAddress}
+            onChange={(e) => update('orgAddress', e.target.value)}
+            placeholder="ABCDEF… (58-character Algorand address)"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
           <p className="text-xs text-gray-400 mt-1">
-            The Algorand wallet address of the organisation requesting your data.
+            The wallet address of the hospital / clinic / organisation requesting your data.
           </p>
         </div>
 
-        {/* Label (optional human-readable name) */}
+        {/* Org Name */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Organisation Name <span className="text-gray-400 font-normal">(optional label)</span>
+            Organisation Name <span className="text-gray-400 font-normal">(optional)</span>
           </label>
           <input
             type="text"
-            value={form.label}
-            onChange={(e) => update('label', e.target.value)}
+            value={form.orgName}
+            onChange={(e) => update('orgName', e.target.value)}
             placeholder="e.g. Apollo Hospitals"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
         {/* Data type */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Data Type</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Data Type <span className="text-red-500">*</span></label>
           <select
             value={form.dataType}
             onChange={(e) => update('dataType', e.target.value as DataType)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             {DATA_TYPES.map((t) => (
               <option key={t}>{t}</option>
@@ -160,27 +182,27 @@ export function GrantConsentForm() {
 
         {/* Purpose */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Purpose</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Purpose of Access <span className="text-red-500">*</span></label>
           <input
             type="text"
             value={form.purpose}
             onChange={(e) => update('purpose', e.target.value)}
-            placeholder="e.g. Annual health screening"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            placeholder="e.g. Annual health screening, insurance verification…"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
         {/* Expiry */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Expiry <span className="text-gray-400 font-normal">(optional)</span>
+            Consent Expires On <span className="text-gray-400 font-normal">(optional — leave blank for no expiry)</span>
           </label>
           <input
             type="date"
             value={form.expiry}
             onChange={(e) => update('expiry', e.target.value)}
             min={new Date().toISOString().split('T')[0]}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
@@ -193,33 +215,27 @@ export function GrantConsentForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg transition-colors"
+          className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg transition-colors"
         >
-          {loading
-            ? 'Submitting…'
-            : activeAddress
-            ? 'Grant Consent'
-            : 'Connect Wallet & Grant Consent'}
+          {loading ? 'Submitting…' : '✓ Approve & Grant Consent'}
         </button>
       </form>
 
       {result && (
-        <div className="mt-4 bg-green-50 border border-green-200 rounded-xl p-4 text-sm">
-          <p className="font-semibold text-green-800 mb-1">✓ Consent granted!</p>
-          <p className="text-gray-600">
-            Consent ASA ID:{' '}
-            <span className="font-mono font-bold text-gray-900">{result.assetId}</span>
-          </p>
-          <p className="text-gray-600 mt-1">
-            Transaction:{' '}
-            <a
-              href={`${CONFIG.EXPLORER_TX_URL}${result.txId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-indigo-700 hover:underline break-all"
-            >
-              {result.txId}
-            </a>
+        <div className="mt-4 bg-emerald-50 border border-emerald-200 rounded-xl p-5 text-sm">
+          <p className="font-bold text-emerald-800 mb-3 text-base">✓ Consent granted on-chain!</p>
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Consent Token ID (ASA)</span>
+              <span className="font-mono font-bold text-gray-900">{result.assetId}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500 shrink-0">Transaction ID</span>
+              <span className="font-mono text-indigo-700 text-xs break-all text-right">{result.txId}</span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-3">
+            This token is stored on-chain as permanent proof of authorisation. The organisation can verify it at any time.
           </p>
         </div>
       )}

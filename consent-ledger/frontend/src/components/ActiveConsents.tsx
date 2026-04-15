@@ -31,7 +31,7 @@ export function ActiveConsents() {
     setLoading(true)
     setError(null)
     try {
-      const algorand = AlgorandClient.testNet()
+      const algorand = AlgorandClient.defaultLocalNet()
       const algod = algorand.client.algod
 
       // 1. Get all ASAs held by the wallet
@@ -92,7 +92,7 @@ export function ActiveConsents() {
       prev.map((item) => (item.assetId === assetId ? { ...item, revoking: true } : item))
     )
     try {
-      const algorand = AlgorandClient.testNet()
+      const algorand = AlgorandClient.defaultLocalNet()
       algorand.setSigner(activeAddress, transactionSigner)
 
       const client = algorand.client.getTypedAppClientById(ConsentLedgerClient, {
@@ -129,10 +129,12 @@ export function ActiveConsents() {
   if (!activeAddress) {
     return (
       <div className="text-center py-16 text-gray-500">
-        <p className="text-lg mb-4">Connect your Pera Wallet to view your consent tokens.</p>
+        <div className="text-5xl mb-4">👤</div>
+        <p className="text-lg font-semibold mb-2">Connect your wallet to view tokens</p>
+        <p className="text-sm text-gray-400 mb-6">You are logged in as a <span className="font-medium text-emerald-600">User</span>. Connect your Pera wallet to see your consent tokens.</p>
         <button
           onClick={() => peraWallet?.connect()}
-          className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-indigo-700"
+          className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:bg-emerald-700 transition-colors"
         >
           Connect Pera Wallet
         </button>
@@ -144,8 +146,8 @@ export function ActiveConsents() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold">Active Consents</h2>
-          <p className="text-gray-500 text-sm">Consent tokens held by your wallet on TestNet</p>
+          <h2 className="text-2xl font-bold">My Consent Tokens</h2>
+          <p className="text-gray-500 text-sm">On-chain consent tokens held by your wallet on LocalNet</p>
         </div>
         <button
           onClick={load}
@@ -209,34 +211,32 @@ function ConsentCard({
               {isRevoked ? 'Revoked' : 'Active'}
             </span>
             <span className="text-xs text-gray-400 font-mono">
-              ASA {item.assetId.toString()}
+              Token #{item.assetId.toString()}
             </span>
           </div>
 
-          <p className="font-semibold text-gray-900 truncate">
-            {item.record.requester}
-          </p>
-          <p className="text-sm text-gray-600 mt-0.5">
-            <span className="font-medium">Type:</span> {item.record.dataType}
-          </p>
-          <p className="text-sm text-gray-600">
-            <span className="font-medium">Purpose:</span> {item.record.purpose}
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            Expires: {formatExpiry(item.record.expiry)}
-          </p>
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-0.5">Granted to Organisation</p>
+            <p className="font-mono text-xs text-gray-800 break-all">{item.record.requester}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-2 text-sm">
+            <div>
+              <span className="font-medium text-gray-600">Data Type:</span>{' '}
+              <span className="text-gray-800 font-semibold">{item.record.dataType}</span>
+            </div>
+            <div>
+              <span className="font-medium text-gray-600">Expires:</span>{' '}
+              <span className="text-gray-800">{formatExpiry(item.record.expiry)}</span>
+            </div>
+            <div className="col-span-2">
+              <span className="font-medium text-gray-600">Purpose:</span>{' '}
+              <span className="text-gray-800">{item.record.purpose}</span>
+            </div>
+          </div>
 
           {item.revokeTxId && (
             <p className="text-xs text-gray-400 mt-2">
-              Revoked in:{' '}
-              <a
-                href={`${CONFIG.EXPLORER_TX_URL}${item.revokeTxId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-indigo-600 hover:underline"
-              >
-                {item.revokeTxId.slice(0, 12)}…
-              </a>
+              Revoked · TxID: <span className="font-mono">{item.revokeTxId.slice(0, 12)}…</span>
             </p>
           )}
         </div>

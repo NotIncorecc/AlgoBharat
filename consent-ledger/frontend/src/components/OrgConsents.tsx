@@ -2,8 +2,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { useWallet } from '@txnlab/use-wallet-react'
 import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import { CONFIG } from '../config'
-import { decodeConsentRecord, formatExpiry } from '../utils'
+import { decodeConsentRecord, formatExpiry, shortAddr } from '../utils'
 import type { ConsentRecord } from '../utils'
+import type { OrgView } from '../App'
 
 // Extract the asset_id (uint64 big-endian) from a box name: "consent_" (8 bytes) + uint64 (8 bytes)
 function assetIdFromBoxName(name: Uint8Array): bigint | null {
@@ -18,13 +19,18 @@ interface GrantedConsent {
   revoked: boolean
 }
 
-export function OrgConsents() {
+interface Props {
+  view: OrgView
+}
+
+export function OrgConsents({ view }: Props) {
   const { activeAddress, wallets } = useWallet()
   const peraWallet = wallets[0]
 
   const [items, setItems] = useState<GrantedConsent[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const load = useCallback(async () => {
     if (!activeAddress) return
@@ -35,11 +41,10 @@ export function OrgConsents() {
     setLoading(true)
     setError(null)
     try {
-      const algorand = AlgorandClient.testNet()
+      const algorand = AlgorandClient.defaultLocalNet()
       const algod = algorand.client.algod
       const appId = Number(CONFIG.APP_ID)
 
-      // Enumerate all boxes of the ConsentLedger app
       const boxesResp = await algod.getApplicationBoxes(appId).do()
       const boxes = boxesResp.boxes ?? []
 
@@ -48,7 +53,6 @@ export function OrgConsents() {
         const assetId = assetIdFromBoxName(box.name)
         if (assetId === null) continue
 
-        // Fetch and decode the box value
         let record: ConsentRecord
         try {
           const boxData = await algod.getApplicationBoxByName(appId, box.name).do()
@@ -57,10 +61,8 @@ export function OrgConsents() {
           continue
         }
 
-        // Filter: only show consents where this wallet is the requester
         if (record.requester !== activeAddress) continue
 
-        // Check revocation: app address holds the ASA; frozen = revoked
         let revoked = false
         try {
           const holding = await algod
@@ -68,7 +70,7 @@ export function OrgConsents() {
             .do()
           revoked = holding.assetHolding?.isFrozen ?? false
         } catch {
-          // if app doesn't hold it, treat as unknown
+          // ignore
         }
 
         matched.push({ assetId, record, revoked })
@@ -82,17 +84,28 @@ export function OrgConsents() {
     }
   }, [activeAddress])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (view === 'granted') load()
+  }, [load, view])
+
+  const handleCopy = () => {
+    if (!activeAddress) return
+    navigator.clipboard.writeText(activeAddress)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   if (!activeAddress) {
     return (
       <div className="text-center py-16 text-gray-500">
-        <p className="text-lg mb-4">
-          Connect your organisation's Pera Wallet to view consents granted to you.
+        <div className="text-5xl mb-4">🏥</div>
+        <p className="text-lg font-semibold mb-2">Connect your organisation wallet</p>
+        <p className="text-sm text-gray-400 mb-6">
+          You are logged in as an <span className="font-medium text-indigo-600">Organisation</span>. Connect your Pera wallet to continue.
         </p>
         <button
           onClick={() => peraWallet?.connect()}
-          className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-indigo-700"
+          className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:bg-indigo-700 transition-colors"
         >
           Connect Pera Wallet
         </button>
@@ -100,13 +113,73 @@ export function OrgConsents() {
     )
   }
 
+  if (view === 'request') {
+    return (
+      <div>
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold mb-1">Request Data Access</h2>
+          <p className="text-gray-500 text-sm">
+            Share your organisation's Algorand address with the data owner (user). They will use it to grant you consent on-chain.
+          </p>
+        </div>
+
+        {/* Connected org info */}
+        <div className="bg-white border border-indigo-100 rounded-xl p-6 shadow-sm mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-xl">🏥</div>
+            <div>
+              <p className="font-semibold text-gray-800">Your Organisation Wallet</p>
+              <p className="text-xs text-gray-400">Connected to LocalNet</p>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-3">
+            <p className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wider">Algorand Address</p>
+            <p className="font-mono text-sm text-gray-900 break-all">{activeAddress}</p>
+          </div>
+
+          <button
+            onClick={handleCopy}
+            className={`w-full py-2 rounded-lg text-sm font-semibold transition-colors ${
+              copied
+                ? 'bg-green-100 text-green-700 border border-green-200'
+                : 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100'
+            }`}
+          >
+            {copied ? '✓ Copied!' : '📋 Copy Address'}
+          </button>
+        </div>
+
+        {/* Instructions */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm">
+          <p className="font-bold text-amber-800 mb-3">How to request consent:</p>
+          <ol className="space-y-2 text-amber-900">
+            <li className="flex gap-2">
+              <span className="font-bold shrink-0">1.</span>
+              <span>Copy your organisation address above and share it with the data owner (the user/patient).</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold shrink-0">2.</span>
+              <span>The user logs in as <strong>User</strong>, enters your address, selects the data type and purpose, then clicks <strong>Approve & Grant Consent</strong>.</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold shrink-0">3.</span>
+              <span>A consent token (ASA) is minted on-chain. Come back to <strong>Granted to Me</strong> to view all consents granted to your address.</span>
+            </li>
+          </ol>
+        </div>
+      </div>
+    )
+  }
+
+  // view === 'granted'
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold">Consents Granted to You</h2>
           <p className="text-gray-500 text-sm">
-            Data access consents where your address is the requester
+            On-chain consent tokens where your address is the authorised requester
           </p>
         </div>
         <button
@@ -116,6 +189,10 @@ export function OrgConsents() {
         >
           {loading ? 'Loading…' : '↻ Refresh'}
         </button>
+      </div>
+
+      <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-sm text-indigo-800">
+        Showing consents for: <span className="font-mono font-semibold">{shortAddr(activeAddress)}</span>
       </div>
 
       {error && (
@@ -130,7 +207,8 @@ export function OrgConsents() {
 
       {!loading && items.length === 0 && !error && (
         <div className="text-center py-12 text-gray-400">
-          No active consents found for your address.
+          <p className="mb-2">No consents granted to your address yet.</p>
+          <p className="text-xs">Share your address with a user so they can grant you access.</p>
         </div>
       )}
 
@@ -147,33 +225,33 @@ function OrgConsentCard({ item }: { item: GrantedConsent }) {
   const { record, revoked } = item
 
   return (
-    <div className={`rounded-xl border p-5 shadow-sm bg-white ${revoked ? 'border-gray-200 opacity-70' : 'border-indigo-100'}`}>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-2">
-          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${revoked ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-            {revoked ? 'Revoked' : 'Active'}
-          </span>
-          <span className="text-xs text-gray-400 font-mono">ASA {item.assetId.toString()}</span>
+    <div className={`rounded-xl border p-5 shadow-sm bg-white transition-opacity ${revoked ? 'border-gray-200 opacity-60' : 'border-indigo-100'}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${
+          revoked ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+        }`}>
+          {revoked ? '✗ Revoked' : '✓ Active'}
+        </span>
+        <span className="text-xs text-gray-400 font-mono">Token #{item.assetId.toString()}</span>
+      </div>
+
+      <div className="mb-3">
+        <p className="text-xs font-medium text-gray-500 mb-0.5">Data Owner (User)</p>
+        <p className="font-mono text-xs text-gray-800 break-all">{record.owner}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+        <div>
+          <p className="text-xs font-medium text-gray-500">Data Type</p>
+          <p className="text-gray-800 font-semibold">{record.dataType}</p>
         </div>
-
-        <p className="text-xs text-gray-500 mb-3 break-all">
-          <span className="font-medium text-gray-700">Owner (data subject):</span>{' '}
-          <span className="font-mono">{record.owner}</span>
-        </p>
-
-        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
-          <div>
-            <span className="font-medium text-gray-700">Data Type:</span>{' '}
-            <span className="text-gray-600">{record.dataType}</span>
-          </div>
-          <div>
-            <span className="font-medium text-gray-700">Expires:</span>{' '}
-            <span className="text-gray-600">{formatExpiry(record.expiry)}</span>
-          </div>
-          <div className="col-span-2">
-            <span className="font-medium text-gray-700">Purpose:</span>{' '}
-            <span className="text-gray-600">{record.purpose}</span>
-          </div>
+        <div>
+          <p className="text-xs font-medium text-gray-500">Expires</p>
+          <p className="text-gray-800">{formatExpiry(record.expiry)}</p>
+        </div>
+        <div className="col-span-2">
+          <p className="text-xs font-medium text-gray-500">Purpose</p>
+          <p className="text-gray-800">{record.purpose}</p>
         </div>
       </div>
     </div>
