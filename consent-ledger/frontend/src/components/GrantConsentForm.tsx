@@ -73,7 +73,7 @@ export function GrantConsentForm() {
 
     setLoading(true)
     try {
-      const algorand = AlgorandClient.defaultLocalNet()
+      const algorand = AlgorandClient.testNet()
       algorand.setSigner(activeAddress, transactionSigner)
 
       const client = algorand.client.getTypedAppClientById(ConsentLedgerClient, {

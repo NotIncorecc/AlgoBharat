@@ -41,7 +41,7 @@ export function OrgConsents({ view }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const algorand = AlgorandClient.defaultLocalNet()
+      const algorand = AlgorandClient.testNet()
       const algod = algorand.client.algod
       const appId = Number(CONFIG.APP_ID)
 

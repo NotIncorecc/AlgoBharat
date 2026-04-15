@@ -7,8 +7,8 @@ import { Header } from './components/Header'
 import { RolePicker } from './components/RolePicker'
 
 const walletManager = new WalletManager({
-  wallets: [WalletId.MNEMONIC],
-  defaultNetwork: NetworkId.LOCALNET,
+  wallets: [WalletId.PERA],
+  defaultNetwork: NetworkId.TESTNET,
 })
 
 export type Role = 'user' | 'org'

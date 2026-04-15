@@ -31,7 +31,7 @@ export function ActiveConsents() {
     setLoading(true)
     setError(null)
     try {
-      const algorand = AlgorandClient.defaultLocalNet()
+      const algorand = AlgorandClient.testNet()
       const algod = algorand.client.algod
 
       // 1. Get all ASAs held by the wallet
@@ -92,7 +92,7 @@ export function ActiveConsents() {
       prev.map((item) => (item.assetId === assetId ? { ...item, revoking: true } : item))
     )
     try {
-      const algorand = AlgorandClient.defaultLocalNet()
+      const algorand = AlgorandClient.testNet()
       algorand.setSigner(activeAddress, transactionSigner)
 
       const client = algorand.client.getTypedAppClientById(ConsentLedgerClient, {
